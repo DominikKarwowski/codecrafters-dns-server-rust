@@ -34,7 +34,7 @@ fn create_response(buf: &[u8; 512]) -> [u8; 512] {
         OperationCode::Query => ResponseCode::NoError,
         _ => ResponseCode::NotImplemented,
     };
-    
+
     let header = Header {
         packet_id: query.header.packet_id,
         qr_ind: QueryResponseIndicator::Response,
@@ -51,13 +51,13 @@ fn create_response(buf: &[u8; 512]) -> [u8; 512] {
     };
 
     let question = Question {
-        name: "codecrafters.io".to_string(),
+        name: query.question.name.clone(),
         record_type: 1,
         class: 1,
     };
 
     let answer = Answer {
-        name: "codecrafters.io".to_string(),
+        name: query.question.name,
         record_type: 1,
         class: 1,
         time_to_live: 60,

@@ -1,4 +1,6 @@
-﻿pub struct DnsMessage {
+﻿use std::str::from_utf8;
+
+pub struct DnsMessage {
     pub header: Header,
     pub question: Question,
     pub answer: Answer,
@@ -58,7 +60,7 @@ pub struct Answer {
 impl DnsMessage {
     pub fn deserialize(buf: &[u8; 512]) -> DnsMessage {
         let header = Header::deserialize(buf);
-        let question = Question::deserialize(buf);
+        let question = Question::deserialize(&buf[12..]);
         let answer = Answer::deserialize(buf);
 
         DnsMessage { header, question, answer }
@@ -186,9 +188,24 @@ impl Header {
 
 impl Question {
     fn deserialize(raw: &[u8]) -> Question {
-        // dummy impl
+        let mut i = 0;
+        let mut name: Vec<&str> = Vec::new();
+
+        while raw[i] != 0 {
+            let len: usize = raw[i].try_into().unwrap();
+            let start = i + 1;
+            let end = start + len;
+
+            let label = from_utf8(&raw[start..end]).unwrap();
+            name.push(label);
+
+            i = end;
+        }
+
+        let name = name.join(".");
+
         Question {
-            name: "".to_string(),
+            name,
             record_type: 0,
             class: 0,
         }
