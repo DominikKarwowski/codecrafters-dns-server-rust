@@ -1,5 +1,6 @@
 ﻿pub struct DnsMessage {
     pub header: Header,
+    pub question: Question,
 }
 
 pub struct Header {
@@ -37,17 +38,25 @@ pub enum ResponseCode {
     Refused,
 }
 
+pub struct Question {
+    pub name: String,
+    pub record_type: u16,
+    pub class: u16,
+}
+
 impl DnsMessage {
     pub fn deserialize(buf: &[u8; 512]) -> DnsMessage {
         let header = Header::deserialize(buf);
+        let question = Question::deserialize(buf);
 
-        DnsMessage { header }
+        DnsMessage { header, question }
     }
 
     pub fn serialize(&self) -> [u8; 512] {
         let mut msg: [u8; 512] = [0; 512];
 
         msg[..12].copy_from_slice(&self.header.serialize());
+        msg[12..].copy_from_slice(&self.question.serialize());
 
         msg
     }
@@ -151,6 +160,43 @@ impl Header {
             ResponseCode::NotImplemented => 4,
             ResponseCode::Refused => 5,
         }
+    }
+}
+
+impl Question {
+    fn deserialize(raw: &[u8]) -> Question {
+        todo!()
+    }
+
+    fn serialize(&self) -> Vec<u8> {
+        let mut serialized: Vec<u8> = Vec::new();
+
+        let name = self.name.split('.');
+
+        for n in name {
+            serialized.push(
+                n.len()
+                    .try_into()
+                    .expect("domain name part length exceeded"),
+            );
+
+            for c in n.chars() {
+                let mut c_buf = vec![0; c.len_utf8()];
+
+                c.encode_utf8(&mut c_buf);
+
+                for b in c_buf {
+                    serialized.push(b);
+                }
+            }
+        }
+
+        serialized.push(0);
+
+        serialized.extend_from_slice(&self.record_type.to_be_bytes());
+        serialized.extend_from_slice(&self.class.to_be_bytes());
+
+        serialized
     }
 }
 

@@ -43,7 +43,13 @@ fn create_response(buf: &[u8; 512]) -> [u8; 512] {
         ar_count: 0,
     };
 
-    let dns_message = DnsMessage { header };
+    let question = Question {
+        name: "codecrafters.io".to_string(),
+        record_type: 1,
+        class: 1,
+    };
+
+    let dns_message = DnsMessage { header, question };
 
     dns_message.serialize()
 }
