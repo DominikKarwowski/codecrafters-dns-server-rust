@@ -37,7 +37,7 @@ fn create_response(buf: &[u8; 512]) -> [u8; 512] {
         is_rec_desired: false,
         is_rec_available: false,
         r_code: ResponseCode::NoError,
-        qd_count: 0,
+        qd_count: 1,
         an_count: 0,
         ns_count: 0,
         ar_count: 0,
