@@ -56,7 +56,9 @@ impl DnsMessage {
         let mut msg: [u8; 512] = [0; 512];
 
         msg[..12].copy_from_slice(&self.header.serialize());
-        msg[12..].copy_from_slice(&self.question.serialize());
+
+        let question = &self.question.serialize();
+        msg[12..question.len()].copy_from_slice(question);
 
         msg
     }
