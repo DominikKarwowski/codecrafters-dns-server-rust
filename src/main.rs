@@ -28,15 +28,22 @@ fn main() {
 }
 
 fn create_response(buf: &[u8; 512]) -> [u8; 512] {
+    let query = DnsMessage::deserialize(buf);
+
+    let r_code = match query.header.op_code {
+        OperationCode::Query => ResponseCode::NoError,
+        _ => ResponseCode::NotImplemented,
+    };
+    
     let header = Header {
-        packet_id: 1234,
+        packet_id: query.header.packet_id,
         qr_ind: QueryResponseIndicator::Response,
-        op_code: OperationCode::Query,
+        op_code: query.header.op_code,
         is_auth_ans: false,
         is_trunc: false,
-        is_rec_desired: false,
+        is_rec_desired: query.header.is_rec_desired,
         is_rec_available: false,
-        r_code: ResponseCode::NoError,
+        r_code,
         qd_count: 1,
         an_count: 1,
         ns_count: 0,

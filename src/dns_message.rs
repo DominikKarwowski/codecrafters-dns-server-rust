@@ -184,7 +184,12 @@ impl Header {
 
 impl Question {
     fn deserialize(raw: &[u8]) -> Question {
-        todo!()
+        // dummy impl
+        Question {
+            name: "".to_string(),
+            record_type: 0,
+            class: 0,
+        }
     }
 
     fn serialize(&self) -> Vec<u8> {
@@ -199,7 +204,16 @@ impl Question {
 
 impl Answer {
     fn deserialize(raw: &[u8]) -> Answer {
-        todo!()
+        // dummy impl
+        Answer {
+            name: "".to_string(),
+            record_type: 0,
+            class: 0,
+            time_to_live: 0,
+            length: 0,
+            data: Vec::new(),
+        }
+
     }
 
     fn serialize(&self) -> Vec<u8> {
