@@ -28,6 +28,7 @@ pub enum OperationCode {
     Query,
     IQuery,
     Status,
+    Other(u8),
 }
 
 pub enum ResponseCode {
@@ -142,14 +143,11 @@ impl Header {
     }
 
     fn deserialize_op_code(buf: &[u8; 512]) -> OperationCode {
-        println!("Byte 3 {}|{:#010b}", buf[2], buf[2]);
-        println!(">> 3 {}|{:#010b}", buf[2] >> 3, buf[2] >> 3);
-        println!(">> 3 & 15 {}|{:#010b}", (buf[2] >> 3) & 15, (buf[2] >> 3) & 15);
         match (buf[2] >> 3) & 15 {
             0 => OperationCode::Query,
             1 => OperationCode::IQuery,
             2 => OperationCode::Status,
-            _ => panic!("Unexpected OPCODE value"),
+            v => OperationCode::Other(v),
         }
     }
 
@@ -158,6 +156,7 @@ impl Header {
             OperationCode::Query => 0,
             OperationCode::IQuery => 1,
             OperationCode::Status => 2,
+            OperationCode::Other(v) => *v,
         }) << 3
     }
 
