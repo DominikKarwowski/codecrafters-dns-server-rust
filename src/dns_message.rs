@@ -72,6 +72,11 @@ impl DnsMessage {
         let curr_len = 12 + question.len();
         msg[12..curr_len].copy_from_slice(question);
 
+        let answer = &self.answer.serialize();
+        let prev_len = curr_len;
+        let curr_len = prev_len + answer.len();
+        msg[prev_len..curr_len].copy_from_slice(answer);
+
         msg
     }
 }
