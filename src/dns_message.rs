@@ -89,10 +89,10 @@ impl Header {
             ),
             qr_ind: Self::deserialize_qr_ind(buf),
             op_code: Self::deserialize_op_code(buf),
-            is_auth_ans: get_bit_flag_for_byte(buf, 2, 5),
-            is_trunc: get_bit_flag_for_byte(buf, 2, 6),
-            is_rec_desired: get_bit_flag_for_byte(buf, 2, 7),
-            is_rec_available: get_bit_flag_for_byte(buf, 3, 0),
+            is_auth_ans: get_bit_flag_for_byte(buf, 2, 2),
+            is_trunc: get_bit_flag_for_byte(buf, 2, 1),
+            is_rec_desired: get_bit_flag_for_byte(buf, 2, 0),
+            is_rec_available: get_bit_flag_for_byte(buf, 3, 7),
             r_code: Self::deserialize_r_code(buf),
             qd_count: u16::from_be_bytes(buf[4..6].try_into().expect("Failed to create qd_count")),
             an_count: u16::from_be_bytes(buf[6..8].try_into().expect("Failed to create an_count")),
@@ -110,12 +110,12 @@ impl Header {
 
         let qr_ind = Self::serialize_qr_ind(&self.qr_ind);
         let op_code = Self::serialize_op_code(&self.op_code);
-        let is_auth_ans = self.is_auth_ans.as_bit_flag(5);
-        let is_trunc = self.is_trunc.as_bit_flag(6);
-        let is_rec_desired = self.is_rec_desired.as_bit_flag(7);
+        let is_auth_ans = self.is_auth_ans.as_bit_flag(2);
+        let is_trunc = self.is_trunc.as_bit_flag(1);
+        let is_rec_desired = self.is_rec_desired.as_bit_flag(0);
         header[2] = qr_ind | op_code | is_auth_ans | is_trunc | is_rec_desired;
 
-        let is_rec_available = self.is_rec_available.as_bit_flag(0);
+        let is_rec_available = self.is_rec_available.as_bit_flag(7);
         let r_code = Self::serialize_r_code(&self.r_code);
         header[3] = is_rec_available | r_code;
 
@@ -128,23 +128,21 @@ impl Header {
     }
 
     fn deserialize_qr_ind(buf: &[u8; 512]) -> QueryResponseIndicator {
-        match buf[2].to_be() & 1 == 1 {
+        match (buf[2] >> 7) & 1 == 1 {
             false => QueryResponseIndicator::Query,
             true => QueryResponseIndicator::Response,
         }
     }
 
     fn serialize_qr_ind(qr_ind: &QueryResponseIndicator) -> u8 {
-        let qr_ind: u8 = match qr_ind {
+        (match qr_ind {
             QueryResponseIndicator::Query => 0,
             QueryResponseIndicator::Response => 1,
-        };
-
-        qr_ind.to_be()
+        }) << 7
     }
 
     fn deserialize_op_code(buf: &[u8; 512]) -> OperationCode {
-        match buf[2].to_be() >> 1 {
+        match buf[2] >> 3 {
             0 => OperationCode::Query,
             1 => OperationCode::IQuery,
             2 => OperationCode::Status,
@@ -153,17 +151,15 @@ impl Header {
     }
 
     fn serialize_op_code(op_code: &OperationCode) -> u8 {
-        let op_code: u8 = match op_code {
+        (match op_code {
             OperationCode::Query => 0,
             OperationCode::IQuery => 1,
             OperationCode::Status => 2,
-        };
-        
-        op_code.to_be() << 1
+        }) << 3
     }
 
     fn deserialize_r_code(buf: &[u8; 512]) -> ResponseCode {
-        match buf[3].to_be() >> 4 {
+        match buf[3] {
             0 => ResponseCode::NoError,
             1 => ResponseCode::FormatError,
             2 => ResponseCode::ServerFailure,
@@ -175,16 +171,14 @@ impl Header {
     }
 
     fn serialize_r_code(r_code: &ResponseCode) -> u8 {
-        let r_code: u8 = match r_code {
+        match r_code {
             ResponseCode::NoError => 0,
             ResponseCode::FormatError => 1,
             ResponseCode::ServerFailure => 2,
             ResponseCode::NameError => 3,
             ResponseCode::NotImplemented => 4,
             ResponseCode::Refused => 5,
-        };
-        
-        r_code.to_be() << 4
+        }
     }
 }
 
@@ -219,6 +213,7 @@ impl Answer {
             length: 0,
             data: Vec::new(),
         }
+
     }
 
     fn serialize(&self) -> Vec<u8> {
@@ -276,7 +271,7 @@ impl GetBitFlag for u8 {
             panic!("Bit index must be between 0 and 7")
         };
 
-        (self.to_be() >> bit_idx) & 1 == 1
+        (self >> bit_idx) & 1 == 1
     }
 }
 
@@ -291,7 +286,6 @@ impl AsBitFlag for bool {
         };
 
         let bit: u8 = if *self { 1 } else { 0 };
-        let bit = bit << bit_idx;
-        bit.to_be()
+        bit << bit_idx
     }
 }
