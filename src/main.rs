@@ -47,7 +47,3 @@ fn create_response(buf: &[u8; 512]) -> [u8; 512] {
 
     dns_message.serialize()
 }
-
-
-
-
