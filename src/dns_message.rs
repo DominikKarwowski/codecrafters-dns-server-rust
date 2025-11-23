@@ -58,7 +58,7 @@ impl DnsMessage {
         msg[..12].copy_from_slice(&self.header.serialize());
 
         let question = &self.question.serialize();
-        msg[12..question.len()].copy_from_slice(question);
+        msg[12..(12 + question.len())].copy_from_slice(question);
 
         msg
     }
