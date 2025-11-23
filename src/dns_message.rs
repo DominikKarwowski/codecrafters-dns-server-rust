@@ -142,6 +142,9 @@ impl Header {
     }
 
     fn deserialize_op_code(buf: &[u8; 512]) -> OperationCode {
+        println!("Byte 3 {}|{:#010b}", buf[2], buf[2]);
+        println!(">> 3 {}|{:#010b}", buf[2] >> 3, buf[2] >> 3);
+        println!(">> 3 & 15 {}|{:#010b}", (buf[2] >> 3) & 15, (buf[2] >> 3) & 15);
         match (buf[2] >> 3) & 15 {
             0 => OperationCode::Query,
             1 => OperationCode::IQuery,
