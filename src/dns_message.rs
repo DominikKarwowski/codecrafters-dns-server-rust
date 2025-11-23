@@ -1,6 +1,7 @@
 ﻿pub struct DnsMessage {
     pub header: Header,
     pub question: Question,
+    pub answer: Answer,
 }
 
 pub struct Header {
@@ -44,12 +45,22 @@ pub struct Question {
     pub class: u16,
 }
 
+pub struct Answer {
+    pub name: String,
+    pub record_type: u16,
+    pub class: u16,
+    pub time_to_live: u32,
+    pub length: u16,
+    pub data: Vec<u8>,
+}
+
 impl DnsMessage {
     pub fn deserialize(buf: &[u8; 512]) -> DnsMessage {
         let header = Header::deserialize(buf);
         let question = Question::deserialize(buf);
+        let answer = Answer::deserialize(buf);
 
-        DnsMessage { header, question }
+        DnsMessage { header, question, answer }
     }
 
     pub fn serialize(&self) -> [u8; 512] {
@@ -58,7 +69,8 @@ impl DnsMessage {
         msg[..12].copy_from_slice(&self.header.serialize());
 
         let question = &self.question.serialize();
-        msg[12..(12 + question.len())].copy_from_slice(question);
+        let curr_len = 12 + question.len();
+        msg[12..curr_len].copy_from_slice(question);
 
         msg
     }
@@ -171,35 +183,59 @@ impl Question {
     }
 
     fn serialize(&self) -> Vec<u8> {
-        let mut serialized: Vec<u8> = Vec::new();
-
-        let name = self.name.split('.');
-
-        for n in name {
-            serialized.push(
-                n.len()
-                    .try_into()
-                    .expect("domain name part length exceeded"),
-            );
-
-            for c in n.chars() {
-                let mut c_buf = vec![0; c.len_utf8()];
-
-                c.encode_utf8(&mut c_buf);
-
-                for b in c_buf {
-                    serialized.push(b);
-                }
-            }
-        }
-
-        serialized.push(0);
+        let mut serialized: Vec<u8> = name_to_labels(&self.name);
 
         serialized.extend_from_slice(&self.record_type.to_be_bytes());
         serialized.extend_from_slice(&self.class.to_be_bytes());
 
         serialized
     }
+}
+
+impl Answer {
+    fn deserialize(raw: &[u8]) -> Answer {
+        todo!()
+    }
+
+    fn serialize(&self) -> Vec<u8> {
+        let mut serialized: Vec<u8> = name_to_labels(&self.name);
+
+        serialized.extend_from_slice(&self.record_type.to_be_bytes());
+        serialized.extend_from_slice(&self.class.to_be_bytes());
+        serialized.extend_from_slice(&self.time_to_live.to_be_bytes());
+        serialized.extend_from_slice(&self.length.to_be_bytes());
+        serialized.extend_from_slice(&self.data);
+
+        serialized
+    }
+}
+
+fn name_to_labels(input: &str) -> Vec<u8> {
+    let mut labels: Vec<u8> = Vec::new();
+
+    let name = input.split('.');
+
+    for n in name {
+        labels.push(
+            n.len()
+                .try_into()
+                .expect("domain name part length exceeded"),
+        );
+
+        for c in n.chars() {
+            let mut c_buf = vec![0; c.len_utf8()];
+
+            c.encode_utf8(&mut c_buf);
+
+            for b in c_buf {
+                labels.push(b);
+            }
+        }
+    }
+
+    labels.push(0);
+
+    labels
 }
 
 fn get_bit_flag_for_byte(buf: &[u8; 512], byte_idx: usize, bit_idx: u8) -> bool {

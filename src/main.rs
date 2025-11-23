@@ -38,7 +38,7 @@ fn create_response(buf: &[u8; 512]) -> [u8; 512] {
         is_rec_available: false,
         r_code: ResponseCode::NoError,
         qd_count: 1,
-        an_count: 0,
+        an_count: 1,
         ns_count: 0,
         ar_count: 0,
     };
@@ -49,7 +49,16 @@ fn create_response(buf: &[u8; 512]) -> [u8; 512] {
         class: 1,
     };
 
-    let dns_message = DnsMessage { header, question };
+    let answer = Answer {
+        name: "codecrafters.io".to_string(),
+        record_type: 1,
+        class: 1,
+        time_to_live: 60,
+        length: 4,
+        data: vec![8, 8, 8, 8],
+    };
+
+    let dns_message = DnsMessage { header, question, answer };
 
     dns_message.serialize()
 }
