@@ -142,7 +142,7 @@ impl Header {
     }
 
     fn deserialize_op_code(buf: &[u8; 512]) -> OperationCode {
-        match buf[2] >> 3 {
+        match (buf[2] >> 3) & 15 {
             0 => OperationCode::Query,
             1 => OperationCode::IQuery,
             2 => OperationCode::Status,
@@ -159,7 +159,7 @@ impl Header {
     }
 
     fn deserialize_r_code(buf: &[u8; 512]) -> ResponseCode {
-        match buf[3] {
+        match buf[3] & 15 {
             0 => ResponseCode::NoError,
             1 => ResponseCode::FormatError,
             2 => ResponseCode::ServerFailure,
