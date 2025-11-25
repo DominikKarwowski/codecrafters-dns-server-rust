@@ -41,8 +41,8 @@ fn create_response(buf: &[u8; 512]) -> [u8; 512] {
     for q in query.questions {
         questions.push(Question {
             name: q.name.clone(),
-            record_type: 1,
-            class: 1,
+            record_type: q.record_type,
+            class: q.class,
         });
 
         answers.push(Answer {
@@ -55,7 +55,7 @@ fn create_response(buf: &[u8; 512]) -> [u8; 512] {
         });
 
     }
-    
+
     let header = Header {
         packet_id: query.header.packet_id,
         qr_ind: QueryResponseIndicator::Response,
