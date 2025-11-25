@@ -229,7 +229,7 @@ impl Question {
                     let mut compressed = true;
 
                     if !skipped_to_offset {
-                        q_end = i;
+                        q_end = i + 1;
                         compressed = false;
                     }
 
@@ -239,7 +239,7 @@ impl Question {
                 v if Self::is_pointer(&v) => {
                     println!("Found offset pointer at pos {i}");
                     if !skipped_to_offset {
-                        q_end = i + 1;
+                        q_end = i + 2;
                         println!("Fixing end pos at {q_end}");
                     }
 
