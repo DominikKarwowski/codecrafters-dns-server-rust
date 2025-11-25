@@ -99,7 +99,9 @@ impl Header {
     fn deserialize(buf: &[u8; 512]) -> Header {
         Header {
             packet_id: u16::from_be_bytes(
-                buf[..2].try_into().expect("Failed to create packet_id."),
+                buf[..2]
+                    .try_into()
+                    .expect("Failed to deserialize packet_id."),
             ),
             qr_ind: Self::deserialize_qr_ind(buf),
             op_code: Self::deserialize_op_code(buf),
@@ -108,11 +110,25 @@ impl Header {
             is_rec_desired: get_bit_flag_for_byte(buf, 2, 0),
             is_rec_available: get_bit_flag_for_byte(buf, 3, 7),
             r_code: Self::deserialize_r_code(buf),
-            qd_count: u16::from_be_bytes(buf[4..6].try_into().expect("Failed to create qd_count")),
-            an_count: u16::from_be_bytes(buf[6..8].try_into().expect("Failed to create an_count")),
-            ns_count: u16::from_be_bytes(buf[8..10].try_into().expect("Failed to create ns_count")),
+            qd_count: u16::from_be_bytes(
+                buf[4..6]
+                    .try_into()
+                    .expect("Failed to deserialize qd_count"),
+            ),
+            an_count: u16::from_be_bytes(
+                buf[6..8]
+                    .try_into()
+                    .expect("Failed to deserialize an_count"),
+            ),
+            ns_count: u16::from_be_bytes(
+                buf[8..10]
+                    .try_into()
+                    .expect("Failed to deserialize ns_count"),
+            ),
             ar_count: u16::from_be_bytes(
-                buf[10..12].try_into().expect("Failed to create ar_count"),
+                buf[10..12]
+                    .try_into()
+                    .expect("Failed to deserialize ar_count"),
             ),
         }
     }
@@ -200,12 +216,26 @@ impl Header {
 impl Question {
     fn deserialize_single(raw: &[u8], q_start: usize) -> (Question, usize) {
         let mut i = q_start;
+        let mut q_end = q_start;
+        let mut skipped_to_offset = false;
         let mut name: Vec<&str> = Vec::new();
 
         loop {
             match raw[i] {
-                0 => break,
+                0 => {
+                    if !skipped_to_offset {
+                        q_end = i
+                    }
+                    
+                    break;
+                }
                 v if Self::is_pointer(&v) => {
+                    if !skipped_to_offset {
+                        q_end = i + 1
+                    }
+
+                    skipped_to_offset = true;
+
                     i = (u16::from_be_bytes([raw[i], raw[i + 1]]) & 0b0011111111111111) as usize;
                 }
                 _ => {
@@ -229,7 +259,7 @@ impl Question {
                 record_type: 0,
                 class: 0,
             },
-            i,
+            q_end,
         )
     }
 
@@ -242,7 +272,7 @@ impl Question {
 
         let mut curr_q_start = 12;
 
-        for _ in [0..*qd_count] {
+        for _ in 0..*qd_count {
             let (q, next_q_start) = Self::deserialize_single(raw, curr_q_start);
             questions.push(q);
             curr_q_start = next_q_start;
