@@ -236,7 +236,7 @@ impl Question {
 
                     skipped_to_offset = true;
 
-                    i = (u16::from_be_bytes([raw[i], raw[i + 1]]) & 0b0011111111111111) as usize;
+                    i = (u16::from_be_bytes(raw[i..i+2].try_into().unwrap()) & 0b0011111111111111) as usize;
                 }
                 _ => {
                     let len: usize = raw[i].try_into().unwrap();
@@ -263,8 +263,8 @@ impl Question {
         )
     }
 
-    fn is_pointer(ind: &u8) -> bool {
-        (ind >> 6) == 3u8
+    fn is_pointer(val: &u8) -> bool {
+        val & 0b11000000 == 0b11000000
     }
 
     fn deserialize(raw: &[u8], qd_count: &u16) -> Vec<Question> {
