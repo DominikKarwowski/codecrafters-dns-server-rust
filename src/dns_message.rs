@@ -60,9 +60,6 @@ pub struct Answer {
 impl DnsMessage {
     pub fn deserialize(buf: &[u8; 512]) -> DnsMessage {
         let header = Header::deserialize(buf);
-
-        println!("Parsed header, QDCOUNT: {} ", header.qd_count);
-
         let questions = Question::deserialize(buf, &header.qd_count);
         let answers = Vec::new();
 
@@ -226,39 +223,28 @@ impl Question {
         loop {
             match raw[i] {
                 0 => {
-                    let mut compressed = true;
-
                     if !skipped_to_offset {
                         q_end = i + 1;
-                        compressed = false;
                     }
 
-                    println!("Finished name parsing at pos {i}, compressed: {compressed}, current end pos {q_end}");
                     break;
                 }
                 v if Self::is_pointer(&v) => {
-                    println!("Found offset pointer at pos {i}");
                     if !skipped_to_offset {
                         q_end = i + 2;
-                        println!("Fixing end pos at {q_end}");
                     }
 
                     skipped_to_offset = true;
 
                     i = (u16::from_be_bytes(raw[i..i+2].try_into().unwrap()) & 0b0011111111111111) as usize;
-                    println!("Skipping to offset: {i}");
                 }
                 _ => {
                     let len = raw[i] as usize;
                     let start = i + 1;
                     let end = start + len;
 
-                    println!("Expecting label of length {len}, between pos {start} and {end}");
-
                     let label = from_utf8(&raw[start..end]).unwrap();
                     name.push(label);
-
-                    println!("Label found: {label}, curr pos: {end}");
 
                     i = end;
                 }
@@ -267,15 +253,11 @@ impl Question {
 
         let name = name.join(".");
 
-        println!("Parsed name: {name}");
-
         let record_type = u16::from_be_bytes([raw[q_end], raw[q_end+1]]);
         q_end += 2;
 
         let class = u16::from_be_bytes([raw[q_end], raw[q_end+1]]);
         q_end += 2;
-
-        println!("Finished question parsing, curr end pos: {q_end}");
 
         (
             Question {
@@ -297,7 +279,6 @@ impl Question {
         let mut curr_q_start = 12;
 
         for i in 0..*qd_count {
-            println!("Parsing question: {i}, starting at pos {curr_q_start}");
             let (q, next_q_start) = Self::deserialize_single(raw, curr_q_start);
             questions.push(q);
             curr_q_start = next_q_start;
