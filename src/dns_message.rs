@@ -73,22 +73,22 @@ impl DnsMessage {
     pub fn serialize(&self) -> [u8; 512] {
         let mut msg: [u8; 512] = [0; 512];
 
-        let mut prev_end = 0;
-        let mut curr_end = 12;
-        msg[prev_end..curr_end].copy_from_slice(&self.header.serialize());
+        let mut begin = 0;
+        let mut end = 12;
+        msg[begin..end].copy_from_slice(&self.header.serialize());
 
         for q in &self.questions {
             let q = q.serialize();
-            prev_end = curr_end;
-            curr_end = prev_end + q.len();
-            msg[prev_end..curr_end].copy_from_slice(&q);
+            begin = end;
+            end = begin + q.len();
+            msg[begin..end].copy_from_slice(&q);
         }
 
         for a in &self.answers {
             let a = a.serialize();
-            prev_end = curr_end;
-            curr_end = prev_end + a.len();
-            msg[prev_end..curr_end].copy_from_slice(&a);
+            begin = end;
+            end = begin + a.len();
+            msg[begin..end].copy_from_slice(&a);
         }
 
         msg
@@ -226,7 +226,7 @@ impl Question {
                     if !skipped_to_offset {
                         q_end = i
                     }
-                    
+
                     break;
                 }
                 v if Self::is_pointer(&v) => {
@@ -253,11 +253,17 @@ impl Question {
 
         let name = name.join(".");
 
+        let record_type = u16::from_be_bytes([raw[q_end], raw[q_end+1]]);
+        q_end += 2;
+        
+        let class = u16::from_be_bytes([raw[q_end], raw[q_end+1]]);
+        q_end += 2;
+        
         (
             Question {
                 name,
-                record_type: 0,
-                class: 0,
+                record_type,
+                class,
             },
             q_end,
         )
