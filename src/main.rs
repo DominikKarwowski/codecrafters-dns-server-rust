@@ -35,6 +35,27 @@ fn create_response(buf: &[u8; 512]) -> [u8; 512] {
         _ => ResponseCode::NotImplemented,
     };
 
+    let mut questions = Vec::new();
+    let mut answers = Vec::new();
+
+    for q in query.questions {
+        questions.push(Question {
+            name: q.name.clone(),
+            record_type: 1,
+            class: 1,
+        });
+
+        answers.push(Answer {
+            name: q.name,
+            record_type: 1,
+            class: 1,
+            time_to_live: 60,
+            length: 4,
+            data: vec![8, 8, 8, 8],
+        });
+
+    }
+    
     let header = Header {
         packet_id: query.header.packet_id,
         qr_ind: QueryResponseIndicator::Response,
@@ -44,28 +65,17 @@ fn create_response(buf: &[u8; 512]) -> [u8; 512] {
         is_rec_desired: query.header.is_rec_desired,
         is_rec_available: false,
         r_code,
-        qd_count: 1,
-        an_count: 1,
+        qd_count: query.header.qd_count,
+        an_count: answers.len().try_into().unwrap(),
         ns_count: 0,
         ar_count: 0,
     };
 
-    let question = Question {
-        name: query.question.name.clone(),
-        record_type: 1,
-        class: 1,
+    let dns_message = DnsMessage {
+        header,
+        questions,
+        answers,
     };
-
-    let answer = Answer {
-        name: query.question.name,
-        record_type: 1,
-        class: 1,
-        time_to_live: 60,
-        length: 4,
-        data: vec![8, 8, 8, 8],
-    };
-
-    let dns_message = DnsMessage { header, question, answer };
 
     dns_message.serialize()
 }

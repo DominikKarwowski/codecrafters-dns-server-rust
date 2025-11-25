@@ -2,8 +2,8 @@
 
 pub struct DnsMessage {
     pub header: Header,
-    pub question: Question,
-    pub answer: Answer,
+    pub questions: Vec<Question>,
+    pub answers: Vec<Answer>,
 }
 
 pub struct Header {
@@ -60,25 +60,36 @@ pub struct Answer {
 impl DnsMessage {
     pub fn deserialize(buf: &[u8; 512]) -> DnsMessage {
         let header = Header::deserialize(buf);
-        let question = Question::deserialize(&buf[12..]);
-        let answer = Answer::deserialize(buf);
+        let questions = Question::deserialize(buf, &header.qd_count);
+        let answers = Vec::new();
 
-        DnsMessage { header, question, answer }
+        DnsMessage {
+            header,
+            questions,
+            answers,
+        }
     }
 
     pub fn serialize(&self) -> [u8; 512] {
         let mut msg: [u8; 512] = [0; 512];
 
-        msg[..12].copy_from_slice(&self.header.serialize());
+        let mut prev_end = 0;
+        let mut curr_end = 12;
+        msg[prev_end..curr_end].copy_from_slice(&self.header.serialize());
 
-        let question = &self.question.serialize();
-        let curr_len = 12 + question.len();
-        msg[12..curr_len].copy_from_slice(question);
+        for q in &self.questions {
+            let q = q.serialize();
+            prev_end = curr_end;
+            curr_end = prev_end + q.len();
+            msg[prev_end..curr_end].copy_from_slice(&q);
+        }
 
-        let answer = &self.answer.serialize();
-        let prev_len = curr_len;
-        let curr_len = prev_len + answer.len();
-        msg[prev_len..curr_len].copy_from_slice(answer);
+        for a in &self.answers {
+            let a = a.serialize();
+            prev_end = curr_end;
+            curr_end = prev_end + a.len();
+            msg[prev_end..curr_end].copy_from_slice(&a);
+        }
 
         msg
     }
@@ -187,28 +198,57 @@ impl Header {
 }
 
 impl Question {
-    fn deserialize(raw: &[u8]) -> Question {
-        let mut i = 0;
+    fn deserialize_single(raw: &[u8], q_start: usize) -> (Question, usize) {
+        let mut i = q_start;
         let mut name: Vec<&str> = Vec::new();
 
-        while raw[i] != 0 {
-            let len: usize = raw[i].try_into().unwrap();
-            let start = i + 1;
-            let end = start + len;
+        loop {
+            match raw[i] {
+                0 => break,
+                v if Self::is_pointer(&v) => {
+                    i = (u16::from_be_bytes([raw[i], raw[i + 1]]) & 0b0011111111111111) as usize;
+                }
+                _ => {
+                    let len: usize = raw[i].try_into().unwrap();
+                    let start = i + 1;
+                    let end = start + len;
 
-            let label = from_utf8(&raw[start..end]).unwrap();
-            name.push(label);
+                    let label = from_utf8(&raw[start..end]).unwrap();
+                    name.push(label);
 
-            i = end;
+                    i = end;
+                }
+            }
         }
 
         let name = name.join(".");
 
-        Question {
-            name,
-            record_type: 0,
-            class: 0,
+        (
+            Question {
+                name,
+                record_type: 0,
+                class: 0,
+            },
+            i,
+        )
+    }
+
+    fn is_pointer(ind: &u8) -> bool {
+        (ind >> 6) == 3u8
+    }
+
+    fn deserialize(raw: &[u8], qd_count: &u16) -> Vec<Question> {
+        let mut questions = Vec::new();
+
+        let mut curr_q_start = 12;
+
+        for _ in [0..*qd_count] {
+            let (q, next_q_start) = Self::deserialize_single(raw, curr_q_start);
+            questions.push(q);
+            curr_q_start = next_q_start;
         }
+
+        questions
     }
 
     fn serialize(&self) -> Vec<u8> {
@@ -232,7 +272,6 @@ impl Answer {
             length: 0,
             data: Vec::new(),
         }
-
     }
 
     fn serialize(&self) -> Vec<u8> {
