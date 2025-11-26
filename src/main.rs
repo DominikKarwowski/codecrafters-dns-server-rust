@@ -1,6 +1,5 @@
 mod dns_message;
 
-use std::convert::identity;
 use crate::dns_message::*;
 use std::env;
 use std::env::Args;
@@ -13,14 +12,24 @@ fn main() {
     let udp_socket = UdpSocket::bind("127.0.0.1:2053").expect("Failed to bind to address");
     let mut buf = [0; 512];
 
+    let fwd_udp_socket = match try_read_args(env::args()) {
+        Some(resolver_addr) => {
+            let fwd_udp_socket = UdpSocket::bind(&resolver_addr).expect(&format!(
+                "Failed to bind to resolver server's address at {resolver_addr}"
+            ));
+            Some((fwd_udp_socket, resolver_addr))
+        },
+        None => None,
+    };
+
     loop {
         match udp_socket.recv_from(&mut buf) {
             Ok((size, source)) => {
                 println!("Received {} bytes from {}", size, source);
 
-                match try_read_args(env::args()) {
-                    Some(resolver_addr) => {
-                        let response = handle_question_fwd(&buf, &resolver_addr);
+                match &fwd_udp_socket {
+                    Some((fwd_udp_socket, resolver_addr)) => {
+                        let response = handle_question_fwd(&buf, &fwd_udp_socket, &resolver_addr);
                         udp_socket
                             .send_to(&response, source)
                             .expect("Failed to send response");
@@ -54,12 +63,8 @@ fn try_read_args(args: Args) -> Option<String> {
     Some(resolver_addr)
 }
 
-fn handle_question_fwd(buf: &[u8; 512], resolver_addr: &str) -> [u8; 512] {
+fn handle_question_fwd(buf: &[u8; 512], fwd_udp_socket: &UdpSocket, resolver_addr: &str) -> [u8; 512] {
     let query = DnsMessage::deserialize(&buf);
-
-    let fwd_udp_socket = UdpSocket::bind(&resolver_addr).expect(&format!(
-        "Failed to bind to resolver server's address at {resolver_addr}"
-    ));
 
     let mut fwd_responses = Vec::new();
 
@@ -118,7 +123,7 @@ fn handle_question_fwd(buf: &[u8; 512], resolver_addr: &str) -> [u8; 512] {
             acc.answers.append(&mut elem.answers);
             acc
         }
-        
+
     ).serialize()
 }
 
