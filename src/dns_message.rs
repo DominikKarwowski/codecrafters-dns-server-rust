@@ -6,6 +6,7 @@ pub struct DnsMessage {
     pub answers: Vec<Answer>,
 }
 
+#[derive(Clone)]
 pub struct Header {
     pub packet_id: u16,
     pub qr_ind: QueryResponseIndicator,
@@ -21,11 +22,13 @@ pub struct Header {
     pub ar_count: u16,
 }
 
+#[derive(Clone)]
 pub enum QueryResponseIndicator {
     Query,
     Response,
 }
 
+#[derive(Clone)]
 pub enum OperationCode {
     Query,
     IQuery,
@@ -33,6 +36,7 @@ pub enum OperationCode {
     Other(u8),
 }
 
+#[derive(Clone)]
 pub enum ResponseCode {
     NoError,
     FormatError,
@@ -60,8 +64,8 @@ pub struct Answer {
 impl DnsMessage {
     pub fn deserialize(buf: &[u8; 512]) -> DnsMessage {
         let header = Header::deserialize(buf);
-        let questions = Question::deserialize(buf, &header.qd_count);
-        let answers = Vec::new();
+        let (questions, curr_pos) = Question::deserialize(buf, &header.qd_count);
+        let answers = Answer::deserialize(buf, &header.an_count, curr_pos);
 
         DnsMessage {
             header,
@@ -229,14 +233,15 @@ impl Question {
 
                     break;
                 }
-                v if Self::is_pointer(&v) => {
+                v if is_pointer(&v) => {
                     if !skipped_to_offset {
                         q_end = i + 2;
                     }
 
                     skipped_to_offset = true;
 
-                    i = (u16::from_be_bytes(raw[i..i+2].try_into().unwrap()) & 0b0011111111111111) as usize;
+                    i = (u16::from_be_bytes(raw[i..i + 2].try_into().unwrap()) & 0b0011111111111111)
+                        as usize;
                 }
                 _ => {
                     let len = raw[i] as usize;
@@ -253,10 +258,10 @@ impl Question {
 
         let name = name.join(".");
 
-        let record_type = u16::from_be_bytes([raw[q_end], raw[q_end+1]]);
+        let record_type = u16::from_be_bytes([raw[q_end], raw[q_end + 1]]);
         q_end += 2;
 
-        let class = u16::from_be_bytes([raw[q_end], raw[q_end+1]]);
+        let class = u16::from_be_bytes([raw[q_end], raw[q_end + 1]]);
         q_end += 2;
 
         (
@@ -269,22 +274,18 @@ impl Question {
         )
     }
 
-    fn is_pointer(val: &u8) -> bool {
-        val & 0b11000000 == 0b11000000
-    }
-
-    fn deserialize(raw: &[u8], qd_count: &u16) -> Vec<Question> {
+    fn deserialize(raw: &[u8], qd_count: &u16) -> (Vec<Question>, usize) {
         let mut questions = Vec::new();
 
         let mut curr_q_start = 12;
 
-        for i in 0..*qd_count {
+        for _ in 0..*qd_count {
             let (q, next_q_start) = Self::deserialize_single(raw, curr_q_start);
             questions.push(q);
             curr_q_start = next_q_start;
         }
 
-        questions
+        (questions, curr_q_start)
     }
 
     fn serialize(&self) -> Vec<u8> {
@@ -298,16 +299,93 @@ impl Question {
 }
 
 impl Answer {
-    fn deserialize(raw: &[u8]) -> Answer {
-        // dummy impl
-        Answer {
-            name: "".to_string(),
-            record_type: 0,
-            class: 0,
-            time_to_live: 0,
-            length: 0,
-            data: Vec::new(),
+    fn deserialize(raw: &[u8], an_count: &u16, pos: usize) -> Vec<Answer> {
+        let mut answers = Vec::new();
+
+        let mut curr_pos = pos;
+
+        for _ in 0..*an_count {
+            let (a, next_pos) = Self::deserialize_single(raw, curr_pos);
+            answers.push(a);
+            curr_pos = next_pos;
         }
+
+        answers
+    }
+
+    fn deserialize_single(raw: &[u8], pos: usize) -> (Answer, usize) {
+        let mut i = pos;
+        let mut end = pos;
+        let mut skipped_to_offset = false;
+        let mut name: Vec<&str> = Vec::new();
+
+        loop {
+            match raw[i] {
+                0 => {
+                    if !skipped_to_offset {
+                        end = i + 1;
+                    }
+
+                    break;
+                }
+                v if is_pointer(&v) => {
+                    if !skipped_to_offset {
+                        end = i + 2;
+                    }
+
+                    skipped_to_offset = true;
+
+                    i = (u16::from_be_bytes(raw[i..i + 2].try_into().unwrap()) & 0b0011111111111111)
+                        as usize;
+                }
+                _ => {
+                    let len = raw[i] as usize;
+                    let start = i + 1;
+                    let end = start + len;
+
+                    let label = from_utf8(&raw[start..end]).unwrap();
+                    name.push(label);
+
+                    i = end;
+                }
+            }
+        }
+
+        let name = name.join(".");
+
+        let record_type = u16::from_be_bytes([raw[end], raw[end + 1]]);
+        end += 2;
+
+        let class = u16::from_be_bytes([raw[end], raw[end + 1]]);
+        end += 2;
+
+        let time_to_live = u32::from_be_bytes(raw[end..end + 4].try_into().unwrap());
+        end += 4;
+
+        let length = u16::from_be_bytes([raw[end], raw[end + 1]]);
+        end += 2;
+
+        let mut data = Vec::new();
+        if record_type == 1 && class == 1 {
+            for _ in 0..4 {
+                data.push(raw[end]);
+                end += 1;
+            }
+        } else {
+            panic!("RR TYPE different than 'A' and CLASS different than 'IN' are not supported.")
+        }
+
+        (
+            Answer {
+                name,
+                record_type,
+                class,
+                time_to_live,
+                length,
+                data,
+            },
+            end,
+        )
     }
 
     fn serialize(&self) -> Vec<u8> {
@@ -349,6 +427,10 @@ fn name_to_labels(input: &str) -> Vec<u8> {
     labels.push(0);
 
     labels
+}
+
+fn is_pointer(val: &u8) -> bool {
+    val & 0b11000000 == 0b11000000
 }
 
 fn get_bit_flag_for_byte(buf: &[u8; 512], byte_idx: usize, bit_idx: u8) -> bool {
