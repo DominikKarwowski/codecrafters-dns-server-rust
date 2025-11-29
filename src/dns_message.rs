@@ -77,25 +77,23 @@ impl DnsMessage {
     pub fn serialize(&self) -> [u8; 512] {
         let mut msg: [u8; 512] = [0; 512];
 
-        let mut begin = 0;
-        let mut end = 12;
-        msg[begin..end].copy_from_slice(&self.header.serialize());
+        msg[..12].copy_from_slice(&self.header.serialize());
 
-        for q in &self.questions {
-            let q = q.serialize();
-            begin = end;
-            end = begin + q.len();
-            msg[begin..end].copy_from_slice(&q);
-        }
+        let (end, msg) = &self.questions.iter().fold((12, msg), |mut acc, elem| {
+            let serialized = elem.serialize();
+            let end = acc.0 + serialized.len();
+            acc.1[(acc.0)..end].copy_from_slice(&serialized);
+            (end, acc.1)
+        });
 
-        for a in &self.answers {
-            let a = a.serialize();
-            begin = end;
-            end = begin + a.len();
-            msg[begin..end].copy_from_slice(&a);
-        }
+        let (_, msg) = &self.answers.iter().fold((*end, *msg), |mut acc, elem| {
+            let serialized = elem.serialize();
+            let end = acc.0 + serialized.len();
+            acc.1[(acc.0)..end].copy_from_slice(&serialized);
+            (end, acc.1)
+        });
 
-        msg
+        *msg
     }
 }
 
