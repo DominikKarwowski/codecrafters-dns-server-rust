@@ -428,7 +428,7 @@ fn name_to_labels(input: &str) -> Vec<u8> {
             let chars_encoded = label
                 .chars()
                 .map(|c| {
-                    let mut c_buf = Vec::with_capacity(c.len_utf8());
+                    let mut c_buf = vec![0; c.len_utf8()];
                     c.encode_utf8(&mut c_buf);
                     c_buf
                 })
@@ -475,5 +475,17 @@ impl AsBitFlag for bool {
 
         let bit: u8 = if *self { 1 } else { 0 };
         bit << bit_idx
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn name_to_labels_parses_string() {
+        let result = name_to_labels("github.com");
+
+        assert_eq!(result, [0x6, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x3, 0x63, 0x6f, 0x6d, 0x0]);
     }
 }
