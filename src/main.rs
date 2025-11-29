@@ -1,58 +1,82 @@
 mod dns_message;
 
 use crate::dns_message::*;
-use std::env;
-use std::env::Args;
+use std::{env, process};
+use std::error::Error;
 #[allow(unused_imports)]
 use std::net::UdpSocket;
 
 fn main() {
     println!("Logs from your program will appear here!");
 
-    let udp_socket = UdpSocket::bind("127.0.0.1:2053").expect("Failed to bind to address");
-    let mut buf = [0; 512];
+    let config = DnsServerConfig::new(env::args());
 
-    let resolver_addr = try_read_args(env::args());
+    if let Err(err) = run_dns_server(&config) {
+        eprintln!("Application error: {err}");
+        process::exit(1);
+    };
+}
+
+fn run_dns_server(config: &DnsServerConfig) -> Result<(), Box<dyn Error>> {
+    let udp_socket = UdpSocket::bind(&config.bind_addr)?;
+    let mut buf = [0; 512];
     
     loop {
-        match udp_socket.recv_from(&mut buf) {
-            Ok((size, source)) => {
-                println!("Received {} bytes from {}", size, source);
+        let (size, source) = udp_socket.recv_from(&mut buf)?;
 
-                match &resolver_addr {
-                    Some(resolver_addr) => {
-                        let response = handle_question_fwd(&buf, &udp_socket, &resolver_addr);
-                        udp_socket
-                            .send_to(&response, source)
-                            .expect("Failed to send response");
-                    }
-                    None => {
-                        let query = DnsMessage::deserialize(&buf);
-                        let response = create_response(&query);
-                        udp_socket
-                            .send_to(&response, source)
-                            .expect("Failed to send response");
-                    }
-                }
+        println!("Received {} bytes from {}", size, source);
+
+        match &config.mode {
+            DnsServerMode::ForwardingServer(resolver_addr) => {
+                let response = handle_question_fwd(&buf, &udp_socket, &resolver_addr);
+                udp_socket
+                    .send_to(&response, source)
+                    .expect("Failed to send response");
             }
-            Err(e) => {
-                eprintln!("Error receiving data: {}", e);
-                break;
+            DnsServerMode::ResolvingServer => {
+                let query = DnsMessage::deserialize(&buf);
+                let response = create_response(&query);
+                udp_socket
+                    .send_to(&response, source)
+                    .expect("Failed to send response");
             }
         }
     }
 }
 
-fn try_read_args(args: Args) -> Option<String> {
-    let args: Vec<String> = args.collect();
 
-    let resolver_addr = if args.get(1)? == "--resolver" {
-        args.get(2)?.to_string()
-    } else {
-        return None;
-    };
+struct DnsServerConfig {
+    bind_addr: String,
+    mode: DnsServerMode,
+}
 
-    Some(resolver_addr)
+enum DnsServerMode {
+    ResolvingServer,
+    ForwardingServer(String),
+}
+
+impl DnsServerConfig {
+    fn new(mut args: impl Iterator<Item = String>) -> Self {
+        args.next();
+
+        let bind_addr = "127.0.0.1:2053".to_owned();
+
+        let mode = match args.next() {
+            Some(arg) if arg == "--resolver" => {
+                if let Some(argv) = args.next() {
+                    DnsServerMode::ForwardingServer(argv)
+                } else {
+                    DnsServerMode::ResolvingServer
+                }
+            }
+            _ => DnsServerMode::ResolvingServer
+        };
+
+        DnsServerConfig {
+            bind_addr,
+            mode,
+        }
+    }
 }
 
 fn handle_question_fwd(buf: &[u8; 512], udp_socket: &UdpSocket, resolver_addr: &str) -> [u8; 512] {
