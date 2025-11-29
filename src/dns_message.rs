@@ -146,30 +146,6 @@ impl Header {
         }
     }
 
-    fn serialize(&self) -> [u8; 12] {
-        let mut header: [u8; 12] = [0; 12];
-
-        header[..2].copy_from_slice(&self.packet_id.to_be_bytes());
-
-        let qr_ind = Self::serialize_qr_ind(&self.qr_ind);
-        let op_code = Self::serialize_op_code(&self.op_code);
-        let is_auth_ans = self.is_auth_ans.as_bit_flag(2);
-        let is_trunc = self.is_trunc.as_bit_flag(1);
-        let is_rec_desired = self.is_rec_desired.as_bit_flag(0);
-        header[2] = qr_ind | op_code | is_auth_ans | is_trunc | is_rec_desired;
-
-        let is_rec_available = self.is_rec_available.as_bit_flag(7);
-        let r_code = Self::serialize_r_code(&self.r_code);
-        header[3] = is_rec_available | r_code;
-
-        header[4..6].copy_from_slice(&self.qd_count.to_be_bytes());
-        header[6..8].copy_from_slice(&self.an_count.to_be_bytes());
-        header[8..10].copy_from_slice(&self.ns_count.to_be_bytes());
-        header[10..12].copy_from_slice(&self.ar_count.to_be_bytes());
-
-        header
-    }
-
     fn deserialize_qr_ind(buf: &[u8; 512]) -> QueryResponseIndicator {
         match (buf[2] >> 7) & 1 == 1 {
             false => QueryResponseIndicator::Query,
@@ -223,6 +199,32 @@ impl Header {
             ResponseCode::NotImplemented => 4,
             ResponseCode::Refused => 5,
         }
+    }
+}
+
+impl Serializable for Header {
+    fn serialize(&self) -> Vec<u8> {
+        let mut header: [u8; 12] = [0; 12];
+
+        header[..2].copy_from_slice(&self.packet_id.to_be_bytes());
+
+        let qr_ind = Self::serialize_qr_ind(&self.qr_ind);
+        let op_code = Self::serialize_op_code(&self.op_code);
+        let is_auth_ans = self.is_auth_ans.as_bit_flag(2);
+        let is_trunc = self.is_trunc.as_bit_flag(1);
+        let is_rec_desired = self.is_rec_desired.as_bit_flag(0);
+        header[2] = qr_ind | op_code | is_auth_ans | is_trunc | is_rec_desired;
+
+        let is_rec_available = self.is_rec_available.as_bit_flag(7);
+        let r_code = Self::serialize_r_code(&self.r_code);
+        header[3] = is_rec_available | r_code;
+
+        header[4..6].copy_from_slice(&self.qd_count.to_be_bytes());
+        header[6..8].copy_from_slice(&self.an_count.to_be_bytes());
+        header[8..10].copy_from_slice(&self.ns_count.to_be_bytes());
+        header[10..12].copy_from_slice(&self.ar_count.to_be_bytes());
+
+        header.to_vec()
     }
 }
 
@@ -415,31 +417,28 @@ impl Serializable for Answer {
 }
 
 fn name_to_labels(input: &str) -> Vec<u8> {
-    let mut labels: Vec<u8> = Vec::new();
-
-    let name = input.split('.');
-
-    for n in name {
-        labels.push(
-            n.len()
+    input
+        .split('.')
+        .map(|label| {
+            let label_len: u8 = label
+                .len()
                 .try_into()
-                .expect("domain name part length exceeded"),
-        );
+                .expect("domain name part length exceeded");
 
-        for c in n.chars() {
-            let mut c_buf = vec![0; c.len_utf8()];
+            let chars_encoded = label
+                .chars()
+                .map(|c| {
+                    let mut c_buf = Vec::with_capacity(c.len_utf8());
+                    c.encode_utf8(&mut c_buf);
+                    c_buf
+                })
+                .flatten();
 
-            c.encode_utf8(&mut c_buf);
-
-            for b in c_buf {
-                labels.push(b);
-            }
-        }
-    }
-
-    labels.push(0);
-
-    labels
+            [label_len].into_iter().chain(chars_encoded)
+        })
+        .flatten()
+        .chain(vec![0u8; 1].into_iter())
+        .collect()
 }
 
 fn is_pointer(val: &u8) -> bool {
