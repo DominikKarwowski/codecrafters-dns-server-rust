@@ -68,8 +68,8 @@ trait Serializable {
 impl DnsMessage {
     pub fn deserialize(buf: &[u8; 512]) -> DnsMessage {
         let header = Header::deserialize(buf);
-        let (questions, curr_pos) = Question::deserialize(buf, &header.qd_count);
-        let answers = Answer::deserialize(buf, &header.an_count, curr_pos);
+        let (questions, curr_pos) = Question::deserialize_questions(buf, &header.qd_count);
+        let answers = Answer::deserialize_answers(buf, &header.an_count, curr_pos);
 
         DnsMessage {
             header,
@@ -95,10 +95,10 @@ impl DnsMessage {
 
     fn copy_from_iter<'a>(
         iter: impl Iterator<Item = &'a dyn Serializable>,
-        pos: usize,
+        start_pos: usize,
         msg: [u8; 512],
     ) -> (usize, [u8; 512]) {
-        iter.fold((pos, msg), |mut acc, elem| {
+        iter.fold((start_pos, msg), |mut acc, elem| {
             let serialized = elem.serialize();
             let begin = acc.0;
             let end = begin + serialized.len();
@@ -123,26 +123,10 @@ impl Header {
             is_rec_desired: get_bit_flag_for_byte(buf, 2, 0),
             is_rec_available: get_bit_flag_for_byte(buf, 3, 7),
             r_code: Self::deserialize_r_code(buf),
-            qd_count: u16::from_be_bytes(
-                buf[4..6]
-                    .try_into()
-                    .expect("Failed to deserialize qd_count"),
-            ),
-            an_count: u16::from_be_bytes(
-                buf[6..8]
-                    .try_into()
-                    .expect("Failed to deserialize an_count"),
-            ),
-            ns_count: u16::from_be_bytes(
-                buf[8..10]
-                    .try_into()
-                    .expect("Failed to deserialize ns_count"),
-            ),
-            ar_count: u16::from_be_bytes(
-                buf[10..12]
-                    .try_into()
-                    .expect("Failed to deserialize ar_count"),
-            ),
+            qd_count: u16::from_be_bytes(buf[4..6].try_into().unwrap()),
+            an_count: u16::from_be_bytes(buf[6..8].try_into().unwrap()),
+            ns_count: u16::from_be_bytes(buf[8..10].try_into().unwrap()),
+            ar_count: u16::from_be_bytes(buf[10..12].try_into().unwrap()),
         }
     }
 
@@ -161,7 +145,7 @@ impl Header {
     }
 
     fn deserialize_op_code(buf: &[u8; 512]) -> OperationCode {
-        match (buf[2] >> 3) & 15 {
+        match (buf[2] >> 3) & 0xF {
             0 => OperationCode::Query,
             1 => OperationCode::IQuery,
             2 => OperationCode::Status,
@@ -179,7 +163,7 @@ impl Header {
     }
 
     fn deserialize_r_code(buf: &[u8; 512]) -> ResponseCode {
-        match buf[3] & 15 {
+        match buf[3] & 0xF {
             0 => ResponseCode::NoError,
             1 => ResponseCode::FormatError,
             2 => ResponseCode::ServerFailure,
@@ -229,51 +213,14 @@ impl Serializable for Header {
 }
 
 impl Question {
-    fn deserialize_single(raw: &[u8], q_start: usize) -> (Question, usize) {
-        let mut i = q_start;
-        let mut q_end = q_start;
-        let mut skipped_to_offset = false;
-        let mut name: Vec<&str> = Vec::new();
+    fn deserialize(raw: &[u8], pos: usize) -> (Question, usize) {
+        let (name, mut pos) = deserialize_name(raw, pos);
 
-        loop {
-            match raw[i] {
-                0 => {
-                    if !skipped_to_offset {
-                        q_end = i + 1;
-                    }
+        let record_type = u16::from_be_bytes([raw[pos], raw[pos + 1]]);
+        pos += 2;
 
-                    break;
-                }
-                v if is_pointer(&v) => {
-                    if !skipped_to_offset {
-                        q_end = i + 2;
-                    }
-
-                    skipped_to_offset = true;
-
-                    i = (u16::from_be_bytes(raw[i..i + 2].try_into().unwrap()) & 0b0011111111111111)
-                        as usize;
-                }
-                _ => {
-                    let len = raw[i] as usize;
-                    let start = i + 1;
-                    let end = start + len;
-
-                    let label = from_utf8(&raw[start..end]).unwrap();
-                    name.push(label);
-
-                    i = end;
-                }
-            }
-        }
-
-        let name = name.join(".");
-
-        let record_type = u16::from_be_bytes([raw[q_end], raw[q_end + 1]]);
-        q_end += 2;
-
-        let class = u16::from_be_bytes([raw[q_end], raw[q_end + 1]]);
-        q_end += 2;
+        let class = u16::from_be_bytes([raw[pos], raw[pos + 1]]);
+        pos += 2;
 
         (
             Question {
@@ -281,17 +228,17 @@ impl Question {
                 record_type,
                 class,
             },
-            q_end,
+            pos,
         )
     }
 
-    fn deserialize(raw: &[u8], qd_count: &u16) -> (Vec<Question>, usize) {
+    fn deserialize_questions(raw: &[u8], qd_count: &u16) -> (Vec<Question>, usize) {
         let mut questions = Vec::new();
 
         let mut curr_q_start = 12;
 
         for _ in 0..*qd_count {
-            let (q, next_q_start) = Self::deserialize_single(raw, curr_q_start);
+            let (q, next_q_start) = Self::deserialize(raw, curr_q_start);
             questions.push(q);
             curr_q_start = next_q_start;
         }
@@ -302,7 +249,7 @@ impl Question {
 
 impl Serializable for Question {
     fn serialize(&self) -> Vec<u8> {
-        let mut serialized: Vec<u8> = name_to_labels(&self.name);
+        let mut serialized: Vec<u8> = serialize_name(&self.name);
 
         serialized.extend_from_slice(&self.record_type.to_be_bytes());
         serialized.extend_from_slice(&self.class.to_be_bytes());
@@ -312,13 +259,13 @@ impl Serializable for Question {
 }
 
 impl Answer {
-    fn deserialize(raw: &[u8], an_count: &u16, pos: usize) -> Vec<Answer> {
+    fn deserialize_answers(raw: &[u8], an_count: &u16, pos: usize) -> Vec<Answer> {
         let mut answers = Vec::new();
 
         let mut curr_pos = pos;
 
         for _ in 0..*an_count {
-            let (a, next_pos) = Self::deserialize_single(raw, curr_pos);
+            let (a, next_pos) = Self::deserialize(raw, curr_pos);
             answers.push(a);
             curr_pos = next_pos;
         }
@@ -326,63 +273,26 @@ impl Answer {
         answers
     }
 
-    fn deserialize_single(raw: &[u8], pos: usize) -> (Answer, usize) {
-        let mut i = pos;
-        let mut end = pos;
-        let mut skipped_to_offset = false;
-        let mut name: Vec<&str> = Vec::new();
+    fn deserialize(raw: &[u8], pos: usize) -> (Answer, usize) {
+        let (name, mut pos) = deserialize_name(raw, pos);
 
-        loop {
-            match raw[i] {
-                0 => {
-                    if !skipped_to_offset {
-                        end = i + 1;
-                    }
+        let record_type = u16::from_be_bytes([raw[pos], raw[pos + 1]]);
+        pos += 2;
 
-                    break;
-                }
-                v if is_pointer(&v) => {
-                    if !skipped_to_offset {
-                        end = i + 2;
-                    }
+        let class = u16::from_be_bytes([raw[pos], raw[pos + 1]]);
+        pos += 2;
 
-                    skipped_to_offset = true;
+        let time_to_live = u32::from_be_bytes(raw[pos..pos + 4].try_into().unwrap());
+        pos += 4;
 
-                    i = (u16::from_be_bytes(raw[i..i + 2].try_into().unwrap()) & 0b0011111111111111)
-                        as usize;
-                }
-                _ => {
-                    let len = raw[i] as usize;
-                    let start = i + 1;
-                    let end = start + len;
-
-                    let label = from_utf8(&raw[start..end]).unwrap();
-                    name.push(label);
-
-                    i = end;
-                }
-            }
-        }
-
-        let name = name.join(".");
-
-        let record_type = u16::from_be_bytes([raw[end], raw[end + 1]]);
-        end += 2;
-
-        let class = u16::from_be_bytes([raw[end], raw[end + 1]]);
-        end += 2;
-
-        let time_to_live = u32::from_be_bytes(raw[end..end + 4].try_into().unwrap());
-        end += 4;
-
-        let length = u16::from_be_bytes([raw[end], raw[end + 1]]);
-        end += 2;
+        let length = u16::from_be_bytes([raw[pos], raw[pos + 1]]);
+        pos += 2;
 
         let mut data = Vec::new();
         if record_type == 1 && class == 1 {
             for _ in 0..4 {
-                data.push(raw[end]);
-                end += 1;
+                data.push(raw[pos]);
+                pos += 1;
             }
         } else {
             panic!("RR TYPE different than 'A' and CLASS different than 'IN' are not supported.")
@@ -397,14 +307,14 @@ impl Answer {
                 length,
                 data,
             },
-            end,
+            pos,
         )
     }
 }
 
 impl Serializable for Answer {
     fn serialize(&self) -> Vec<u8> {
-        let mut serialized: Vec<u8> = name_to_labels(&self.name);
+        let mut serialized: Vec<u8> = serialize_name(&self.name);
 
         serialized.extend_from_slice(&self.record_type.to_be_bytes());
         serialized.extend_from_slice(&self.class.to_be_bytes());
@@ -416,7 +326,7 @@ impl Serializable for Answer {
     }
 }
 
-fn name_to_labels(input: &str) -> Vec<u8> {
+fn serialize_name(input: &str) -> Vec<u8> {
     input
         .split('.')
         .map(|label| {
@@ -441,8 +351,48 @@ fn name_to_labels(input: &str) -> Vec<u8> {
         .collect()
 }
 
+fn deserialize_name(raw: &[u8], pos: usize) -> (String, usize) {
+    let mut i = pos;
+    let mut end = pos;
+    let mut skipped_to_offset = false;
+    let mut name: Vec<&str> = Vec::new();
+
+    loop {
+        match raw[i] {
+            0 => {
+                if !skipped_to_offset {
+                    end = i + 1;
+                }
+
+                break;
+            }
+            v if is_pointer(&v) => {
+                if !skipped_to_offset {
+                    end = i + 2;
+                }
+
+                skipped_to_offset = true;
+
+                i = (u16::from_be_bytes(raw[i..i + 2].try_into().unwrap()) & 0x3FFF) as usize;
+            }
+            _ => {
+                let len = raw[i] as usize;
+                let start = i + 1;
+                let end = start + len;
+
+                let label = from_utf8(&raw[start..end]).unwrap();
+                name.push(label);
+
+                i = end;
+            }
+        }
+    }
+
+    (name.join("."), end)
+}
+
 fn is_pointer(val: &u8) -> bool {
-    val & 0b11000000 == 0b11000000
+    val & 0xC0 == 0xC0
 }
 
 fn get_bit_flag_for_byte(buf: &[u8; 512], byte_idx: usize, bit_idx: u8) -> bool {
@@ -484,8 +434,11 @@ mod tests {
 
     #[test]
     fn name_to_labels_parses_string() {
-        let result = name_to_labels("github.com");
+        let result = serialize_name("github.com");
 
-        assert_eq!(result, [0x6, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x3, 0x63, 0x6f, 0x6d, 0x0]);
+        assert_eq!(
+            result,
+            [0x6, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x3, 0x63, 0x6f, 0x6d, 0x0]
+        );
     }
 }
