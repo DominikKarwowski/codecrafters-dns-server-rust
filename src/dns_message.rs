@@ -61,6 +61,10 @@ pub struct Answer {
     pub data: Vec<u8>,
 }
 
+trait Serializable {
+    fn serialize(&self) -> Vec<u8>;
+}
+
 impl DnsMessage {
     pub fn deserialize(buf: &[u8; 512]) -> DnsMessage {
         let header = Header::deserialize(buf);
@@ -77,23 +81,30 @@ impl DnsMessage {
     pub fn serialize(&self) -> [u8; 512] {
         let mut msg: [u8; 512] = [0; 512];
 
-        msg[..12].copy_from_slice(&self.header.serialize());
+        let pos = 12;
+        msg[..pos].copy_from_slice(&self.header.serialize());
 
-        let (end, msg) = &self.questions.iter().fold((12, msg), |mut acc, elem| {
+        let questions_iter = self.questions.iter().map(|item| item as &dyn Serializable);
+        let (pos, msg) = Self::copy_from_iter(questions_iter, pos, msg);
+
+        let answers_iter = self.answers.iter().map(|item| item as &dyn Serializable);
+        let (_, msg) = Self::copy_from_iter(answers_iter, pos, msg);
+
+        msg
+    }
+
+    fn copy_from_iter<'a>(
+        iter: impl Iterator<Item = &'a dyn Serializable>,
+        pos: usize,
+        msg: [u8; 512],
+    ) -> (usize, [u8; 512]) {
+        iter.fold((pos, msg), |mut acc, elem| {
             let serialized = elem.serialize();
-            let end = acc.0 + serialized.len();
-            acc.1[(acc.0)..end].copy_from_slice(&serialized);
+            let begin = acc.0;
+            let end = begin + serialized.len();
+            acc.1[begin..end].copy_from_slice(&serialized);
             (end, acc.1)
-        });
-
-        let (_, msg) = &self.answers.iter().fold((*end, *msg), |mut acc, elem| {
-            let serialized = elem.serialize();
-            let end = acc.0 + serialized.len();
-            acc.1[(acc.0)..end].copy_from_slice(&serialized);
-            (end, acc.1)
-        });
-
-        *msg
+        })
     }
 }
 
@@ -285,7 +296,9 @@ impl Question {
 
         (questions, curr_q_start)
     }
+}
 
+impl Serializable for Question {
     fn serialize(&self) -> Vec<u8> {
         let mut serialized: Vec<u8> = name_to_labels(&self.name);
 
@@ -385,7 +398,9 @@ impl Answer {
             end,
         )
     }
+}
 
+impl Serializable for Answer {
     fn serialize(&self) -> Vec<u8> {
         let mut serialized: Vec<u8> = name_to_labels(&self.name);
 
