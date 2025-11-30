@@ -6,7 +6,7 @@ pub struct DnsMessage {
     pub answers: Vec<Answer>,
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Header {
     pub packet_id: u16,
     pub qr_ind: QueryResponseIndicator,
@@ -22,13 +22,13 @@ pub struct Header {
     pub ar_count: u16,
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub enum QueryResponseIndicator {
     Query,
     Response,
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub enum OperationCode {
     Query,
     IQuery,
@@ -36,7 +36,7 @@ pub enum OperationCode {
     Other(u8),
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub enum ResponseCode {
     NoError,
     FormatError,
@@ -352,17 +352,56 @@ fn serialize_name(input: &str) -> Vec<u8> {
 }
 
 fn deserialize_name(raw: &[u8], pos: usize) -> (String, usize) {
-    let init_state = NameDeserializeState::new(pos);
+    let mut state = NameDeserializeState::new(pos);
 
-    let state = deserialize_name_rec(raw, init_state);
+    loop {
+        match raw[state.pos] {
+            0 => {
+                let end_pos = match state.jumped_to_offset {
+                    true => state.end_pos,
+                    false => state.pos + 1,
+                };
 
-    (state.labels.join("."), state.end_pos)
+                return (state.labels.join("."), end_pos);
+            }
+            v if v & 0xC0 == 0xC0 => {
+                state = NameDeserializeState {
+                    pos: (u16::from_be_bytes(raw[state.pos..state.pos + 2].try_into().unwrap())
+                        & 0x3FFF) as usize,
+                    end_pos: match state.jumped_to_offset {
+                        true => state.end_pos,
+                        false => state.pos + 2,
+                    },
+                    jumped_to_offset: true,
+                    ..state
+                };
+
+                continue;
+            }
+            v => {
+                let len = v as usize;
+                let begin = state.pos + 1;
+                let end = begin + len;
+
+                let label = from_utf8(&raw[begin..end])
+                    .expect("Sequence of bytes is not a valid UTF-8 string");
+
+                state.labels.push(label);
+
+                state = NameDeserializeState {
+                    pos: end,
+                    end_pos: end,
+                    ..state
+                };
+            }
+        }
+    }
 }
 
 struct NameDeserializeState<'a> {
     pos: usize,
     end_pos: usize,
-    skipped_to_offset: bool,
+    jumped_to_offset: bool,
     labels: Vec<&'a str>,
 }
 
@@ -371,57 +410,8 @@ impl<'a> NameDeserializeState<'a> {
         NameDeserializeState {
             pos,
             end_pos: pos,
-            skipped_to_offset: false,
+            jumped_to_offset: false,
             labels: Vec::new(),
-        }
-    }
-}
-
-fn deserialize_name_rec<'a>(raw: &'a [u8], state: NameDeserializeState<'a>) -> NameDeserializeState<'a> {
-    if state.pos >= raw.len() {
-        panic!("Name deserialization error");
-    }
-
-    let is_offset_ptr = |val| val & 0xC0 == 0xC0;
-
-    match raw[state.pos] {
-        0 => NameDeserializeState {
-            end_pos: match state.skipped_to_offset {
-                true => state.end_pos,
-                false => state.pos + 1,
-            },
-            ..state
-        },
-        v if is_offset_ptr(&v) => {
-            let i = state.pos;
-            let state = NameDeserializeState {
-                pos: (u16::from_be_bytes(raw[i..i+2].try_into().unwrap()) & 0x3FFF) as usize,
-                end_pos: match state.skipped_to_offset {
-                    true => state.end_pos,
-                    false => state.pos + 2,
-                },
-                skipped_to_offset: true,
-                ..state
-            };
-
-            deserialize_name_rec(raw, state)
-        }
-        v => {
-            let len = v as usize;
-            let begin = state.pos + 1;
-            let end = begin + len;
-
-            let label =
-                from_utf8(&raw[begin..end]).expect("Sequence of bytes is not a valid UTF-8 string");
-
-            let state = NameDeserializeState {
-                pos: end,
-                end_pos: end,
-                labels: [state.labels, vec![label]].concat(),
-                ..state
-            };
-
-            deserialize_name_rec(raw, state)
         }
     }
 }
