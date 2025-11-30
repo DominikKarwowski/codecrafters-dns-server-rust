@@ -352,47 +352,78 @@ fn serialize_name(input: &str) -> Vec<u8> {
 }
 
 fn deserialize_name(raw: &[u8], pos: usize) -> (String, usize) {
-    let mut i = pos;
-    let mut end = pos;
-    let mut skipped_to_offset = false;
-    let mut name: Vec<&str> = Vec::new();
+    let init_state = NameDeserializeState::new(pos);
 
-    loop {
-        match raw[i] {
-            0 => {
-                if !skipped_to_offset {
-                    end = i + 1;
-                }
+    let state = deserialize_name_rec(raw, init_state);
 
-                break;
-            }
-            v if is_pointer(&v) => {
-                if !skipped_to_offset {
-                    end = i + 2;
-                }
-
-                skipped_to_offset = true;
-
-                i = (u16::from_be_bytes(raw[i..i + 2].try_into().unwrap()) & 0x3FFF) as usize;
-            }
-            _ => {
-                let len = raw[i] as usize;
-                let start = i + 1;
-                let end = start + len;
-
-                let label = from_utf8(&raw[start..end]).unwrap();
-                name.push(label);
-
-                i = end;
-            }
-        }
-    }
-
-    (name.join("."), end)
+    (state.labels.join("."), state.end_pos)
 }
 
-fn is_pointer(val: &u8) -> bool {
-    val & 0xC0 == 0xC0
+struct NameDeserializeState<'a> {
+    pos: usize,
+    end_pos: usize,
+    skipped_to_offset: bool,
+    labels: Vec<&'a str>,
+}
+
+impl<'a> NameDeserializeState<'a> {
+    fn new(pos: usize) -> Self {
+        NameDeserializeState {
+            pos,
+            end_pos: pos,
+            skipped_to_offset: false,
+            labels: Vec::new(),
+        }
+    }
+}
+
+fn deserialize_name_rec<'a>(raw: &'a [u8], state: NameDeserializeState<'a>) -> NameDeserializeState<'a> {
+    if state.pos >= raw.len() {
+        panic!("Name deserialization error");
+    }
+
+    let is_offset_ptr = |val| val & 0xC0 == 0xC0;
+
+    match raw[state.pos] {
+        0 => NameDeserializeState {
+            end_pos: match state.skipped_to_offset {
+                true => state.end_pos,
+                false => state.pos + 1,
+            },
+            ..state
+        },
+        v if is_offset_ptr(&v) => {
+            let i = state.pos;
+            let state = NameDeserializeState {
+                pos: (u16::from_be_bytes(raw[i..i+2].try_into().unwrap()) & 0x3FFF) as usize,
+                end_pos: match state.skipped_to_offset {
+                    true => state.end_pos,
+                    false => state.pos + 2,
+                },
+                skipped_to_offset: true,
+                ..state
+            };
+
+            deserialize_name_rec(raw, state)
+        }
+        v => {
+            let len = v as usize;
+            let begin = state.pos + 1;
+            let end = begin + len;
+
+            let label =
+                from_utf8(&raw[begin..end]).expect("Sequence of bytes is not a valid UTF-8 string");
+
+            let state = NameDeserializeState {
+                pos: end,
+                end_pos: end,
+                labels: [state.labels, vec![label]].concat(),
+                ..state
+            };
+
+            deserialize_name_rec(raw, state)
+        }
+    }
 }
 
 fn get_bit_flag_for_byte(buf: &[u8; 512], byte_idx: usize, bit_idx: u8) -> bool {

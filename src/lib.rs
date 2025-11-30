@@ -84,7 +84,6 @@ fn handle_question_fwd(buf: &[u8; 512], udp_socket: &UdpSocket, resolver_addr: &
 
     let mut fwd_responses = Vec::new();
 
-    // TODO: make async
     for q in query.questions {
         let mut fwd_buf: [u8; 512] = [0; 512];
 
@@ -99,12 +98,10 @@ fn handle_question_fwd(buf: &[u8; 512], udp_socket: &UdpSocket, resolver_addr: &
         .serialize();
 
         udp_socket
-            .send_to(buf, resolver_addr)
+            .send_to(&msg, resolver_addr)
             .expect("Failed to forward query");
 
         udp_socket.recv_from(&mut fwd_buf).unwrap();
-
-        // TODO: ensure thread safe push when async
         fwd_responses.push(DnsMessage::deserialize(&fwd_buf));
     }
 
