@@ -66,12 +66,20 @@ trait Serializable {
 }
 
 impl DnsMessage {
-    pub fn deserialize(buf: &[u8; 512]) -> DnsMessage {
+    pub fn new(header: Header, questions: Vec<Question>, answers: Vec<Answer>) -> Self {
+        Self {
+            header,
+            questions,
+            answers,
+        }
+    }
+
+    pub fn deserialize(buf: &[u8; 512]) -> Self {
         let header = Header::deserialize(buf);
         let (questions, curr_pos) = Question::deserialize_questions(buf, &header.qd_count);
         let answers = Answer::deserialize_answers(buf, &header.an_count, curr_pos);
 
-        DnsMessage {
+        Self {
             header,
             questions,
             answers,
@@ -109,8 +117,8 @@ impl DnsMessage {
 }
 
 impl Header {
-    fn deserialize(buf: &[u8; 512]) -> Header {
-        Header {
+    fn deserialize(buf: &[u8; 512]) -> Self {
+        Self {
             packet_id: u16::from_be_bytes(
                 buf[..2]
                     .try_into()
@@ -213,7 +221,15 @@ impl Serializable for Header {
 }
 
 impl Question {
-    fn deserialize(raw: &[u8], pos: usize) -> (Question, usize) {
+    pub fn new(name: String, record_type: u16, class: u16) -> Self {
+        Self {
+            name,
+            record_type,
+            class,
+        }
+    }
+
+    fn deserialize(raw: &[u8], pos: usize) -> (Self, usize) {
         let (name, mut pos) = deserialize_name(raw, pos);
 
         let record_type = u16::from_be_bytes([raw[pos], raw[pos + 1]]);
@@ -232,7 +248,7 @@ impl Question {
         )
     }
 
-    fn deserialize_questions(raw: &[u8], qd_count: &u16) -> (Vec<Question>, usize) {
+    fn deserialize_questions(raw: &[u8], qd_count: &u16) -> (Vec<Self>, usize) {
         let mut questions = Vec::new();
 
         let mut curr_q_start = 12;
@@ -259,7 +275,25 @@ impl Serializable for Question {
 }
 
 impl Answer {
-    fn deserialize_answers(raw: &[u8], an_count: &u16, pos: usize) -> Vec<Answer> {
+    pub fn new(
+        name: String,
+        record_type: u16,
+        class: u16,
+        time_to_live: u32,
+        length: u16,
+        data: Vec<u8>,
+    ) -> Self {
+        Self {
+            name,
+            record_type,
+            class,
+            time_to_live,
+            length,
+            data,
+        }
+    }
+
+    fn deserialize_answers(raw: &[u8], an_count: &u16, pos: usize) -> Vec<Self> {
         let mut answers = Vec::new();
 
         let mut curr_pos = pos;
@@ -273,7 +307,7 @@ impl Answer {
         answers
     }
 
-    fn deserialize(raw: &[u8], pos: usize) -> (Answer, usize) {
+    fn deserialize(raw: &[u8], pos: usize) -> (Self, usize) {
         let (name, mut pos) = deserialize_name(raw, pos);
 
         let record_type = u16::from_be_bytes([raw[pos], raw[pos + 1]]);
@@ -299,7 +333,7 @@ impl Answer {
         }
 
         (
-            Answer {
+            Self {
                 name,
                 record_type,
                 class,

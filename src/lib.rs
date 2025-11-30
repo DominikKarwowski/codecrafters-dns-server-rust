@@ -44,7 +44,7 @@ fn handle_query_fwd(
     resolver_addr: &str,
 ) -> Result<usize, io::Error> {
     let query = DnsMessage::deserialize(&buf);
-    
+
     let header = Header {
         packet_id: query.header.packet_id,
         qr_ind: QueryResponseIndicator::Response,
@@ -68,11 +68,7 @@ fn handle_query_fwd(
         .into_iter()
         .map(|q| handle_single_query_fwd(q, &query.header, udp_socket, resolver_addr))
         .fold(
-            DnsMessage {
-                header,
-                questions: Vec::new(),
-                answers: Vec::new(),
-            },
+            DnsMessage::new(header, Vec::new(), Vec::new()),
             |mut acc, mut elem| {
                 acc.questions.append(&mut elem.questions);
                 acc.answers.append(&mut elem.answers);
@@ -92,21 +88,19 @@ fn handle_single_query_fwd(
 ) -> DnsMessage {
     let mut fwd_buf: [u8; 512] = [0; 512];
 
-    let msg = DnsMessage {
-        header: Header {
-            qd_count: 1,
-            ..*header
-        },
-        questions: vec![query],
-        answers: Vec::new(),
-    }
-    .serialize();
+    let header = Header {
+        qd_count: 1,
+        ..*header
+    };
+
+    let msg = DnsMessage::new(header, vec![query], Vec::new()).serialize();
 
     udp_socket
         .send_to(&msg, resolver_addr)
         .expect("Failed to forward query");
 
     udp_socket.recv_from(&mut fwd_buf).unwrap();
+    
     DnsMessage::deserialize(&fwd_buf)
 }
 
@@ -120,21 +114,8 @@ fn get_response(query: &DnsMessage) -> DnsMessage {
         .questions
         .iter()
         .map(|q| {
-            let q = Question {
-                name: q.name.clone(),
-                record_type: q.record_type,
-                class: q.class,
-            };
-
-            let a = Answer {
-                name: q.name.clone(),
-                record_type: 1,
-                class: 1,
-                time_to_live: 60,
-                length: 4,
-                data: vec![8, 8, 8, 8],
-            };
-
+            let q = Question::new(q.name.clone(), q.record_type, q.class);
+            let a = Answer::new(q.name.clone(), 1, 1, 60, 4, vec![8, 8, 8, 8]);
             (q, a)
         })
         .collect();
@@ -154,11 +135,7 @@ fn get_response(query: &DnsMessage) -> DnsMessage {
         ar_count: 0,
     };
 
-    DnsMessage {
-        header,
-        questions,
-        answers,
-    }
+    DnsMessage::new(header, questions, answers)
 }
 
 pub struct DnsServerConfig {
